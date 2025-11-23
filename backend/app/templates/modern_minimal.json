@@ -1,0 +1,15 @@
+{
+  "name":"Modern Minimal",
+  "description":"Large whitespace, subtle accent, bold headings and thin body text. Great for tech roles.",
+  "accentColor":"#12B886",
+  "bgType":"gradient",
+  "bgGradient":{"from":"#FFFFFF","to":"#F7FFF6","angle":180},
+  "profilePhotoPlaceholder":true,
+  "fontTitle":"Poppins",
+  "fontBody":"Roboto",
+  "titleFontSize":48,
+  "subtitleFontSize":18,
+  "headingFontSize":20,
+  "bodyFontSize":16,
+  "layoutHints":{"titleSlide":"centeredBig","twoColumn":"splitEven","timeline":"dotsRight"}
+}

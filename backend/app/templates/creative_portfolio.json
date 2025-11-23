@@ -1,0 +1,15 @@
+{
+  "name":"Creative Portfolio",
+  "description":"Colorful, full-bleed image possible on title slide, large project images and two-column project slides.",
+  "accentColor":"#FF6B6B",
+  "bgType":"image",
+  "bgColor":"#FFFFFF",
+  "profilePhotoPlaceholder":false,
+  "fontTitle":"Playfair Display",
+  "fontBody":"Lato",
+  "titleFontSize":50,
+  "subtitleFontSize":20,
+  "headingFontSize":24,
+  "bodyFontSize":16,
+  "layoutHints":{"titleSlide":"fullBleedImage","twoColumn":"imageLeftTextRight","timeline":"centeredTimeline"}
+}

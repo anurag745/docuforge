@@ -1,0 +1,15 @@
+{
+  "name":"Professional Clean",
+  "description":"Conservative, readable. Big name/title slide, left column for photo/contact, right column for summary and bullets.",
+  "accentColor":"#0A74DA",
+  "bgColor":"#FFFFFF",
+  "bgType":"solid",
+  "profilePhotoPlaceholder":true,
+  "fontTitle":"Montserrat",
+  "fontBody":"Inter",
+  "titleFontSize":44,
+  "subtitleFontSize":20,
+  "headingFontSize":22,
+  "bodyFontSize":18,
+  "layoutHints":{"titleSlide":"leftPhotoRightText","twoColumn":"photoLeftTextRight","timeline":"leftAlignedMarkers"}
+}
