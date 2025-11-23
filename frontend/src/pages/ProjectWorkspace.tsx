@@ -56,6 +56,78 @@ const ProjectWorkspace = () => {
           deck.slides.push({ type: 'summary', title: s.title, bullets, notes: '' });
         }
 
+        if (currentProject.docType === 'pptx') {
+          const axiosRes = await api.post('/api/projects/generate_pptx', deck, { responseType: 'blob' });
+          const blob = axiosRes.data;
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${(currentProject.title || 'presentation').replace(/[^a-z0-9_-]/gi, '_')}.pptx`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          toast.success('PPTX generated and downloaded');
+        } else {
+          // docx export via project export endpoint
+          // include client-side sections so unsaved edits are preserved in the exported .docx
+          const clientSections = currentProject.sections.map((s: any) => ({ id: s.id, title: s.title, content: s.content }));
+          const res = await api.post(`/api/projects/${currentProject.id}/export`, { format: 'docx', clientSections }, { responseType: 'blob' as any });
+          const blob = res.data;
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${(currentProject.title || 'document').replace(/[^a-z0-9_-]/gi, '_')}.docx`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          toast.success('DOCX generated and downloaded');
+        }
+      } catch (e: any) {
+        console.error('Export failed', e);
+        toast.error('Export failed: ' + (e.message || 'unknown'));
+      } finally {
+        setIsExporting(false);
+      }
+    })();
+  };
+
+  const handleSaveAndExport = async () => {
+    if (!currentProject) return;
+    if (!selectedSectionId) {
+      toast.error('No section selected to save');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const selected = currentProject.sections.find((s: any) => s.id === selectedSectionId);
+      if (!selected) {
+        toast.error('Selected section not found');
+        return;
+      }
+
+      // Persist current editor content for the selected section
+      await api.post(`/api/projects/${currentProject.id}/sections/${selectedSectionId}/save`, { title: selected.title, content: selected.content });
+      // After save, trigger export matching the project's docType
+      if (currentProject.docType === 'pptx') {
+        // build a DeckModel from currentProject and selectedTemplate
+        const deck: any = {
+          title: currentProject.title,
+          author: currentProject.title,
+          template: selectedTemplate || {},
+          slides: [],
+        };
+        // first slide: title
+        deck.slides.push({ type: 'title', title: currentProject.title, subtitle: currentProject.docType.toUpperCase(), images: [] });
+        // map sections to summary slides using current in-memory content
+        for (const s of currentProject.sections) {
+          const content = s.content || '';
+          const paras = content.split(/\n+/).map((p: string) => p.trim()).filter(Boolean);
+          const bullets = paras.slice(0, 6);
+          deck.slides.push({ type: 'summary', title: s.title, bullets, notes: '' });
+        }
+
         const axiosRes = await api.post('/api/projects/generate_pptx', deck, { responseType: 'blob' });
         const blob = axiosRes.data;
         const url = window.URL.createObjectURL(blob);
@@ -66,15 +138,27 @@ const ProjectWorkspace = () => {
         a.click();
         a.remove();
         window.URL.revokeObjectURL(url);
-
-        toast.success('PPTX generated and downloaded');
-      } catch (e: any) {
-        console.error('Export failed', e);
-        toast.error('Export failed: ' + (e.message || 'unknown'));
-      } finally {
-        setIsExporting(false);
+        toast.success('Draft saved and PPTX downloaded');
+      } else {
+        // DOCX export
+        const res = await api.post(`/api/projects/${currentProject.id}/export`, { format: 'docx' }, { responseType: 'blob' as any });
+        const blob = res.data;
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(currentProject.title || 'document').replace(/[^a-z0-9_-]/gi, '_')}.docx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        toast.success('Draft saved and DOCX downloaded');
       }
-    })();
+    } catch (e: any) {
+      console.error('Save & Export failed', e);
+      toast.error('Save & Export failed: ' + (e?.message || 'unknown'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
@@ -111,6 +195,14 @@ const ProjectWorkspace = () => {
               <Download className="w-4 h-4 mr-2" />
             )}
             Export {currentProject.docType.toUpperCase()}
+          </Button>
+          <Button onClick={handleSaveAndExport} disabled={isExporting} className="ml-2">
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            Save & Export
           </Button>
         </div>
       </header>

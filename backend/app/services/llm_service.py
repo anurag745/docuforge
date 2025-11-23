@@ -13,6 +13,8 @@ USE_MOCK = os.getenv("USE_MOCK", "true").lower() in ("1", "true", "yes")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 PREFER_OPENAI = bool(OPENAI_API_KEY)
+DOCX_MIN_WORDS = int(os.getenv("DOCX_MIN_WORDS", "200"))
+DOCX_MAX_WORDS = int(os.getenv("DOCX_MAX_WORDS", "600"))
 
 
 class LLMService:
@@ -53,11 +55,13 @@ class LLMService:
                         "Return ONLY the JSON object (no markdown fences, no commentary)."
                     )
                 else:
+                    # DOCX / report instruct the model to produce longer, academic-style sections with a clear word target
                     user_instructions = (
                         f"Generate a report-style HTML fragment for a DOCX section titled '{context or ''}'. "
                         "Return either a single HTML string or a JSON object with an `html` field containing the HTML. "
-                        "This should read like a short report section: include a heading (h2/h3) and 2-6 well-formed paragraphs, each made of 2-5 sentences (aim ~150-400 words total). "
-                        "Use semantic tags (h2/h3, p, ul/li) and prefer full sentences and cohesive paragraphs rather than bullet fragments. "
+                        f"This should read like an academic/report section: include a heading (h2/h3) and 2-8 well-formed paragraphs, each made of multiple sentences. "
+                        f"Aim for approximately {DOCX_MIN_WORDS} to {DOCX_MAX_WORDS} words for the entire section. "
+                        "Use semantic tags (h2/h3, p, ul/li) and prefer complete sentences and cohesive paragraphs rather than bullet fragments. "
                         "Return ONLY the HTML or JSON (no commentary)."
                     )
 
@@ -71,11 +75,17 @@ class LLMService:
                 user = {"role": "user", "content": prompt}
 
                 try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
+                    # adjust token budget for longer DOCX outputs
+                    max_tok = 512
+                    if docType == "docx":
+                        # allocate more tokens for longer sections
+                        max_tok = int(os.getenv("OPENAI_MAX_TOKENS_DOCX", "1200"))
+
+                    async with httpx.AsyncClient(timeout=60.0) as client:
                         resp = await client.post(
                             "https://api.openai.com/v1/chat/completions",
                             headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
-                            json={"model": OPENAI_MODEL, "messages": [system, user], "max_tokens": 512},
+                            json={"model": OPENAI_MODEL, "messages": [system, user], "max_tokens": max_tok},
                         )
                         resp.raise_for_status()
                         data = resp.json()

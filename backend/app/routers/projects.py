@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
+import re
 from typing import List
-from app.schemas.schemas import ProjectCreate, ProjectOut, GenerateRequest, GenerateResponse, RefineRequest, FeedbackRequest, CommentRequest, ExportRequest, OutlineRequest, OutlineSuggestRequest
+from app.schemas.schemas import ProjectCreate, ProjectOut, GenerateRequest, GenerateResponse, RefineRequest, FeedbackRequest, CommentRequest, ExportRequest, OutlineRequest, OutlineSuggestRequest, SectionSaveRequest
 from app.database import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.routers.auth import get_current_user
@@ -274,6 +275,73 @@ async def export(project_id: int, payload: ExportRequest, session: AsyncSession 
         buf.seek(0)
         filename = f"project-{project_id}.pptx"
         return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
+    # If docx requested, build a Word document from sections
+    if fmt == "docx":
+        try:
+            from docx import Document
+            from docx.shared import Pt
+        except Exception:
+            # docx library missing; fall back to text export
+            doc = None
+
+        # Use client-provided sections if present (this allows exporting unsaved/edited content that exists only on the client).
+        client_sections = getattr(payload, 'clientSections', None)
+
+        if 'Document' in globals() or 'Document' in locals():
+            doc = Document()
+            # Title
+            if project.title:
+                doc.add_heading(project.title, level=1)
+
+            # choose source sections: prefer clientSections when provided
+            source_sections = None
+            if client_sections and isinstance(client_sections, list):
+                # normalize client sections to simple objects with title and content
+                source_sections = [{'title': c.get('title') if isinstance(c, dict) else None, 'content': c.get('content') if isinstance(c, dict) else None} for c in client_sections]
+            else:
+                source_sections = [{'title': s.title, 'content': s.content} for s in (project.sections or [])]
+
+            for s in source_sections:
+                # section title
+                if s.get('title'):
+                    doc.add_heading(s.get('title'), level=2)
+                content = s.get('content') or ''
+                try:
+                    soup = BeautifulSoup(content, 'html.parser')
+                    # paragraphs
+                    for el in soup.find_all(['h1', 'h2', 'h3']):
+                        # add as heading if present
+                        text = el.get_text(' ', strip=True)
+                        if text:
+                            doc.add_heading(text, level=2)
+                    for p in soup.find_all('p'):
+                        t = p.get_text(' ', strip=True)
+                        if t:
+                            doc.add_paragraph(t)
+                    for ul in soup.find_all('ul'):
+                        for li in ul.find_all('li'):
+                            txt = li.get_text(' ', strip=True)
+                            if txt:
+                                doc.add_paragraph(txt, style='List Bullet')
+                    # fallback: if no paragraphs found, add raw text
+                    if not soup.find_all(['p', 'ul', 'h1', 'h2', 'h3']):
+                        raw = BeautifulSoup(content, 'html.parser').get_text('\n', strip=True)
+                        if raw:
+                            for line in raw.split('\n'):
+                                if line.strip():
+                                    doc.add_paragraph(line.strip())
+                except Exception:
+                    # fallback to raw text
+                    txt = re.sub(r'<[^>]+>', '', content)
+                    for line in txt.split('\n'):
+                        if line.strip():
+                            doc.add_paragraph(line.strip())
+
+            buf = io.BytesIO()
+            doc.save(buf)
+            buf.seek(0)
+            filename = f"project-{project_id}.docx"
+            return StreamingResponse(buf, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
 
     # fallback: build a simple text file as mock
     buf = io.BytesIO()
@@ -282,6 +350,37 @@ async def export(project_id: int, payload: ExportRequest, session: AsyncSession 
     buf.seek(0)
     filename = f"project-{project_id}." + (payload.format or "txt")
     return StreamingResponse(buf, media_type="application/octet-stream", headers={"Content-Disposition": f"attachment; filename=\"{filename}\""})
+
+
+@router.post("/{project_id}/sections/{section_id}/save")
+async def save_section(project_id: int, section_id: int, payload: SectionSaveRequest, session: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
+    """Persist a section's title/content and create a revision so 'Save & Export' can persist the current draft before exporting."""
+    owner_id = int(user.get("sub"))
+    # ensure project exists and is owned by user
+    _ = await get_project(session, project_id, owner_id)
+    s = await session.get(Section, section_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    updated = False
+    if payload.title is not None and payload.title != s.title:
+        s.title = payload.title
+        updated = True
+    if payload.content is not None and payload.content != s.content:
+        s.content = payload.content
+        updated = True
+
+    if updated:
+        session.add(s)
+        await session.commit()
+        await session.refresh(s)
+        try:
+            # create a revision record as a save checkpoint
+            await append_revision(session, s.id, s.content or "", "manual save from client")
+        except Exception:
+            pass
+
+    return {"ok": True, "section": {"id": s.id, "title": s.title, "content": s.content}}
 
 
 @router.post('/suggest_templates')

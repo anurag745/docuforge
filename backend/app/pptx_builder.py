@@ -45,6 +45,63 @@ def _hex_to_rgb(hexcolor: str):
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 
+def _html_to_lines(maybe_html: str) -> List[str]:
+    """Convert an HTML fragment or plain text into a list of cleaned lines/bullets.
+
+    - If input contains <ul>/<li>, each li becomes one line.
+    - Otherwise paragraphs (<p>) become lines. If plain text, split on newlines.
+    """
+    if not maybe_html:
+        return []
+    if '<' in maybe_html and '>' in maybe_html:
+        try:
+            soup = BeautifulSoup(maybe_html, 'html.parser')
+            lines: List[str] = []
+            # prefer list items
+            for ul in soup.find_all('ul'):
+                for li in ul.find_all('li'):
+                    t = li.get_text(' ', strip=True)
+                    if t:
+                        lines.append(t)
+            if lines:
+                return lines
+
+            # paragraphs
+            for p in soup.find_all('p'):
+                t = p.get_text(' ', strip=True)
+                if t:
+                    lines.append(t)
+            if lines:
+                return lines
+
+            # headings and raw text fallback
+            text = soup.get_text('\n', strip=True)
+            return [l.strip() for l in text.split('\n') if l.strip()]
+        except Exception:
+            # fallback to stripping tags roughly
+            stripped = re.sub(r'<[^>]+>', '', maybe_html)
+            return [s.strip() for s in stripped.split('\n') if s.strip()]
+    # plain text path
+    return [s.strip() for s in str(maybe_html).split('\n') if s.strip()]
+
+
+def _ensure_plain_list(bullets: List[Any]) -> List[str]:
+    """Given a list of items that may contain HTML fragments or strings, return a flat list of plain strings."""
+    out: List[str] = []
+    for b in bullets or []:
+        if not b:
+            continue
+        if isinstance(b, str) and ('<' in b and '>' in b):
+            out.extend(_html_to_lines(b))
+        elif isinstance(b, str):
+            out.append(b.strip())
+        else:
+            # non-string (e.g., dict) -> stringify
+            s = str(b)
+            out.append(s)
+    return out
+
+
 def _is_dark(hexcolor: str) -> bool:
     try:
         r, g, b = _hex_to_rgb(hexcolor or '#FFFFFF')
@@ -264,8 +321,10 @@ def create_summary_slide(prs: Presentation, slide_def: Dict[str, Any], template:
     txBox = slide.shapes.add_textbox(tx_left, tx_top, tx_w, tx_h)
     tf = txBox.text_frame
     tf.word_wrap = True
+    # sanitize bullets (they may contain HTML fragments coming from the frontend/editor)
     bullets = slide_def.get('bullets') or []
-    for b in bullets:
+    clean_bullets = _ensure_plain_list(bullets)
+    for b in clean_bullets:
         p = tf.add_paragraph()
         p.text = "• " + b
         p.font.name = body_font
@@ -346,9 +405,10 @@ def create_skills_slide(prs: Presentation, slide_def: Dict[str, Any], template: 
 
     bullets = slide_def.get('bullets') or []
     # split into two columns
-    mid = (len(bullets) + 1) // 2
-    left_col = bullets[:mid]
-    right_col = bullets[mid:]
+    clean_bullets = _ensure_plain_list(bullets)
+    mid = (len(clean_bullets) + 1) // 2
+    left_col = clean_bullets[:mid]
+    right_col = clean_bullets[mid:]
 
     left_box = slide.shapes.add_textbox(Inches(0.6), Inches(1.2), Inches(4.5), Inches(4))
     right_box = slide.shapes.add_textbox(Inches(5.2), Inches(1.2), Inches(4.0), Inches(4))
@@ -465,9 +525,10 @@ def create_contact_slide(prs: Presentation, slide_def: Dict[str, Any], template:
     tx.paragraphs[0].font.size = Pt(template.get('headingFontSize', 22))
 
     bullets = slide_def.get('bullets') or []
+    clean_bullets = _ensure_plain_list(bullets)
     box = slide.shapes.add_textbox(Inches(0.6), Inches(1.2), prs.slide_width - Inches(1.2), Inches(4))
     btf = box.text_frame
-    for b in bullets:
+    for b in clean_bullets:
         p = btf.add_paragraph()
         p.text = b
         p.font.name = body_font

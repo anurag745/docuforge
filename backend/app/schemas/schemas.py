@@ -41,6 +41,11 @@ class SectionCreate(BaseModel):
     content: Optional[str] = None
 
 
+class SectionSaveRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+
 class SectionOut(BaseModel):
     id: int
     project_id: int
@@ -98,6 +103,9 @@ class ExportRequest(BaseModel):
     format: str
     sections: Optional[List[int]] = None
     includeComments: Optional[bool] = False
+    # Optional client-side sections payload: list of objects with id, title, content
+    # If provided, the export endpoint will use these instead of loading sections from the DB.
+    clientSections: Optional[List[dict]] = None
 
 
 class OutlineRequest(BaseModel):
